@@ -22,6 +22,12 @@ We need to automate the process of analyzing multiple Spring Boot microservices 
 
 ## Initial Setup
 
+#### Bring up the sonarQube Server
+
+```bash
+docker compose up -d
+```
+
 The initial setup script creates SonarQube projects and generates tokens for each microservice. This script should be run once.
 
 ### Script: `initial_setup.sh`
