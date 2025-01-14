@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Variables
-GITLAB_URL="https://gitlab.spectrumflow.net/force"
-REPOS=("source-of-truth-service" "config-manager-service" "job-management-service" "workflow-service")
+GITLAB_URL="https://gitlab.com/yourapp"
+REPOS=("service1" "service2" "service3" "service4")
 CLONE_DIR="microservices"
 SONARQUBE_URL="http://sonarqube:9000"
 PROJECT_NAME="Charter-High-Split"
@@ -13,7 +13,7 @@ DOCKER_NETWORK="sonarqube_default"  # Replace with your Docker network name if n
 # Create a directory for all microservices
 mkdir -p $CLONE_DIR
 
-git clone https://gitlab.spectrumflow.net/force/charter-common-libs.git
+git clone https://gitlab.com/yourapp/common-libs.git
 cd charter-common-libs
 mvn clean install
 cd -
