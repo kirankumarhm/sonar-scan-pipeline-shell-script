@@ -34,7 +34,7 @@ SONARQUBE_URL="http://your-sonarqube-server"
 SONARQUBE_USERNAME="your-username"
 SONARQUBE_PASSWORD="your-password"
 PROJECT_NAME="High-Split"  # Replace spaces with hyphens or underscores
-REPOS=("source-of-truth-service" "config-manager-service" "job-management-service" "workflow-service")
+REPOS=("service1" "service2" "service3" "service4")
 TOKEN_DIR="sonar_tokens"
 
 # Create a directory to store tokens
@@ -83,7 +83,7 @@ Script: scan_code.sh
 
 # Variables
 GITLAB_URL="https://gitlab.com/your-username"
-REPOS=("source-of-truth-service" "config-manager-service" "job-management-service" "workflow-service")
+REPOS=("service1" "service2" "service3" "service4")
 CLONE_DIR="microservices"
 SONARQUBE_URL="http://your-sonarqube-server"
 PROJECT_NAME="High-Split"  # Replace spaces with hyphens or underscores
