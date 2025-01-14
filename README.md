@@ -64,21 +64,26 @@ for REPO in "${REPOS[@]}"; do
 done
 
 echo "Initial setup completed for all microservices."
-
+```
 
 
 
 Running the Initial Setup Script
 Make the script executable:
+```bash
 chmod +x initial_setup.sh
+```
 
 Run the script:
+```bash
 ./initial_setup.sh
+```bash
 
 Code Scanning
 The code scanning script clones or pulls the latest code for each microservice and runs SonarScanner using Docker.
 
 Script: scan_code.sh
+```bash
 #!/bin/bash
 
 # Variables
@@ -118,13 +123,18 @@ for REPO in "${REPOS[@]}"; do
 done
 
 echo "SonarScanner analysis completed for all microservices."
+```
 
 Running the Code Scanning Script
 Make the script executable:
+
+```bash
 chmod +x scan_code.sh
+```
 
 Run the script:
+```bash
 ./scan_code.sh
-
+```
 Conclusion
 These scripts automate the process of setting up SonarQube projects, generating tokens, and running code analysis for multiple Spring Boot microservices. Ensure that you replace the placeholder values with your actual details before running the scripts.
