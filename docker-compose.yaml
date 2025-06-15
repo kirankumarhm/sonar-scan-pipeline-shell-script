@@ -1,8 +1,8 @@
-
+name :   sonarqube
 services:
   sonarqube:
     container_name: sonarqube
-    image: sonarqube:community
+    image: sonarqube:lts-community
     depends_on:
       - db
     environment:
@@ -10,13 +10,16 @@ services:
       SONAR_JDBC_USERNAME: sonar
       SONAR_JDBC_PASSWORD: sonar
     volumes:
-      - ./sonarqube/sonarqube_data:/opt/sonarqube/data
-      - ./sonarqube/sonarqube_extensions:/opt/sonarqube/extensions
-      - ./sonarqube/sonarqube_logs:/opt/sonarqube/logs
+      - ./sonarqube_data:/opt/sonarqube/data
+      - ./sonarqube_logs:/opt/sonarqube/logs
+      # - ./extensions/plugins:/opt/sonarqube/extensions/plugins
     ports:
       - "9001:9000"
       - "9092:9092"
-# token: sqp_70f082a426a757fd772f7dfc4bf218600f327ed9
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar"]
+      interval: 10s
+      retries: 10
 
   db:
     image: postgres
@@ -24,8 +27,7 @@ services:
     environment:
       POSTGRES_USER: sonar
       POSTGRES_PASSWORD: sonar
+    ports:
+      - "5433:5432"
     volumes:
-      - ./postgres/postgresql:/var/lib/postgresql
       - ./postgres/postgresql_data:/var/lib/postgresql/data
-
-
