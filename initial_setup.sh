@@ -4,8 +4,8 @@
 SONARQUBE_URL="http://localhost:9001"
 SONARQUBE_USERNAME="admin"
 SONARQUBE_PASSWORD="yourpassword"
-PROJECT_NAME="Charter-High-Split"
-REPOS=("service1" "service2" "service3" "service4")
+PROJECT_NAME="main-project-folder"
+REPOS=("service1-folder" "service2-folder" "service3-folder" "service4-folder")
 TOKEN_DIR="sonar_tokens"
 
 # Create a directory to store tokens
