@@ -19,6 +19,7 @@ This setup automates the local SonarQube environment, project onboarding, token 
 ├── docker-compose.yaml        # SonarQube & PostgreSQL services
 ├── initial_setup.sh           # Onboards projects and generates tokens
 ├── scan_code.sh               # Clones/updates repos and runs Sonar analysis
+├── teardown.sh                # Stops services and cleans up resources
 ├── sonar_tokens/              # Generated tokens for each microservice
 ├── sonarqube_plugins/         # Community plugins mounted to /opt/sonarqube/extensions/plugins
 │   └── conflicting_or_unextracted/  # Isolated duplicate built-in analyzers and archives
@@ -140,3 +141,26 @@ Example:
 ```bash
 ./scan_code.sh --report
 ```
+
+---
+
+## 6. Teardown & Cleanup (`teardown.sh`)
+
+Gracefully stop services and optionally clean up persistent data or build workspaces:
+
+```bash
+chmod +x teardown.sh
+./teardown.sh
+```
+
+### Cleanup Options:
+
+| Command | Action |
+| :--- | :--- |
+| `./teardown.sh` | Gracefully stops and removes SonarQube & PostgreSQL containers (**preserves all data**). |
+| `./teardown.sh -w` | Stops containers and deletes `./java-workspace`. |
+| `./teardown.sh -v` | Stops containers and deletes persistent data volumes (`sonarqube_data/`, `postgres/`). |
+| `./teardown.sh -t` | Stops containers and deletes generated token files (`sonar_tokens/`). |
+| `./teardown.sh -r` | Stops containers and deletes generated CNES reports (`reports/`). |
+| `./teardown.sh --all` | Full environment reset: stops containers and deletes volumes, workspace, tokens, and reports. |
+| `./teardown.sh --all -y` | Non-interactive full reset (skips confirmation prompts). |
