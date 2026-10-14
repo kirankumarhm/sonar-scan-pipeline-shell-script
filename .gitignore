@@ -1,0 +1,50 @@
+# ==========================================
+# Operating System & IDE Files
+# ==========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ==========================================
+# Sensitive Credentials & Tokens
+# ==========================================
+sonar_tokens/
+*.env
+.env.*
+
+# ==========================================
+# Docker Volumes & Runtime Database Data
+# ==========================================
+postgres/
+postgresql_data/
+sonarqube_data/
+sonarqube_logs/
+
+# ==========================================
+# Workspaces, Cloned Repos & Reports
+# ==========================================
+java-workspace/
+microservices/
+reports/
+target/
+
+# ==========================================
+# Logs & Process Files
+# ==========================================
+*.log
+*.pid
+
+# ==========================================
+# SonarQube Plugins
+# (Keep directory structure via .gitkeep, ignore large binaries)
+# ==========================================
+sonarqube_plugins/*
+!sonarqube_plugins/.gitkeep

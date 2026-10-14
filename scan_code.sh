@@ -1,216 +1,252 @@
 #!/bin/bash
+set -eo pipefail
 
-# Variables
-GITLAB_URL="https://gitlab.com/yourapp"
+# --- Script & Directory Paths ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DOCKER_COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yaml"
+CLONE_DIR="$SCRIPT_DIR/java-workspace"
+TOKEN_DIR="$SCRIPT_DIR/sonar_tokens"
+
+# --- Configuration & Variables ---
+GITLAB_URL="${GITLAB_URL:-https://gitlab.com/yourapp}"
 REPOS=("service1" "service2" "service3" "service4")
-CLONE_DIR="./java-workspace"
-SONARQUBE_URL="http://localhost:9001"
-DOCKER_NETWORK="sonarqube_default"
-SONARQUBE_USERNAME="admin"
-SONARQUBE_PASSWORD="admin1"
-TOKEN="squ_e11f441d4e6e754e6e4ef197f1faf65d56f7c87d"
+SONARQUBE_URL="${SONARQUBE_URL:-http://localhost:9001}"
+SONARQUBE_USERNAME="${SONARQUBE_USERNAME:-admin}"
+SONARQUBE_PASSWORD="${SONARQUBE_PASSWORD:-admin1}"
+PROJECT_PREFIX="${PROJECT_PREFIX:-}" # Optional prefix matching initial_setup.sh
+SERVICE_NAME="sonarqube"
+
+# Default fallback token if per-repo token file is not found
+TOKEN="${TOKEN:-}"
+
+# Optional command-line flags
+DELETE_BEFORE_SCAN=false
+CLEAN_WORKSPACE_AFTER_SCAN=false
+GENERATE_CNES_REPORT=false
+
+for arg in "$@"; do
+  case $arg in
+    --clean-projects)
+      DELETE_BEFORE_SCAN=true
+      ;;
+    --clean-workspace)
+      CLEAN_WORKSPACE_AFTER_SCAN=true
+      ;;
+    --report)
+      GENERATE_CNES_REPORT=true
+      ;;
+    *)
+      ;;
+  esac
+done
 
 # --- Utility Functions ---
-# Function to check if the specific service container is currently running.
-# This function is used internally by check_sonarqube_status and start_sonarqube.
+
+# Check if the SonarQube container is running in Docker
 _is_sonarqube_running() {
-    # 'docker compose ps -q <service_name>' returns the container ID if running, or nothing if not.
-    # We explicitly use './docker-compose.yaml' as per user's request.
-    local running_id=$(docker compose -f "./docker-compose.yaml" ps -q "$SERVICE_NAME")
-    if [ -n "$running_id" ]; then
-        return 0 # Sonarqube is running
-    else
-        return 1 # Sonarqube is not running
+  local running_id
+  running_id=$(docker compose -f "$DOCKER_COMPOSE_FILE" ps -q "$SERVICE_NAME" 2>/dev/null || true)
+  if [ -n "$running_id" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# Wait for SonarQube HTTP API to be completely UP and operational
+wait_for_sonarqube_ready() {
+  local max_attempts=30
+  local wait_seconds=5
+  local attempt=1
+
+  echo "Waiting for SonarQube web API to be ready at $SONARQUBE_URL..."
+  while [ "$attempt" -le "$max_attempts" ]; do
+    local status
+    status=$(curl -s -f "$SONARQUBE_URL/api/system/status" 2>/dev/null | jq -r '.status // empty' 2>/dev/null || true)
+    if [ "$status" == "UP" ]; then
+      echo "SonarQube is UP and healthy!"
+      return 0
     fi
+    echo "SonarQube is starting (status: '${status:-STARTING}', attempt $attempt/$max_attempts)... waiting ${wait_seconds}s"
+    sleep "$wait_seconds"
+    attempt=$((attempt + 1))
+  done
+
+  echo "Error: Timed out waiting for SonarQube to become ready."
+  return 1
 }
 
-# Function to check if sonarqube is running after 'docker compose up'
-check_sonarqube_status() {
-    local attempts=0
-    local max_attempts=3 # Max 3 attempts to check after 'up'
-    local wait_time=10   # Wait 10 seconds between checks for individual service status
-
-    echo "Verifying '$SERVICE_NAME' container status..."
-    while [ "$attempts" -lt "$max_attempts" ]; do
-        if _is_sonarqube_running; then
-            echo "'$SERVICE_NAME' container is now running."
-            return 0 # Success
-        else
-            echo "Waiting for '$SERVICE_NAME' container to come up (attempt $((attempts+1))/$max_attempts)..."
-            sleep "$wait_time"
-            attempts=$((attempts+1))
-        fi
-    done
-    echo "Timed out waiting for '$SERVICE_NAME' container to come up."
-    return 1 # Failure
-}
-
-# Function to bring up Docker containers with retry logic
+# Start SonarQube via docker compose if not already running
 start_sonarqube() {
-    echo "Attempting to bring up Docker containers..."
-    # First attempt to bring up the containers
-    # We explicitly use './docker-compose.yaml' as per user's request.
-    docker compose -f "./docker-compose.yaml" up -d
+  echo "Starting SonarQube Docker containers..."
+  docker compose -f "$DOCKER_COMPOSE_FILE" up -d
 
-    # Check if the sonarqube service is running after the first attempt
-    if check_sonarqube_status; then
-        echo "Docker containers are now up and running in detached mode, and '$SERVICE_NAME' is active."
-        echo "Current status of all containers:"
-        docker compose -f "./docker-compose.yaml" ps
-    else
-        echo "First attempt to bring up containers succeeded but '$SERVICE_NAME' did not become active. Waiting 30 seconds before retrying 'docker compose up'..."
-        sleep 30 # User requested 30 seconds wait for retry
-
-        echo "Retrying to bring up Docker containers..."
-        # Second attempt to bring up the containers
-        docker compose -f "./docker-compose.yaml" up -d
-
-        # Check if the sonarqube service is running after the second attempt
-        if check_sonarqube_status; then
-            echo "Docker containers are now up and running after retry, and '$SERVICE_NAME' is active."
-            echo "Current status of all containers:"
-            docker compose -f "./docker-compose.yaml" ps
-        else
-            echo "Error: Second attempt to bring up Docker containers also failed or '$SERVICE_NAME' did not become active."
-            echo "Please check your 'docker-compose.yaml' file, Docker daemon status, and container logs for issues."
-            exit 1
-        fi
-    fi
+  if ! wait_for_sonarqube_ready; then
+    echo "Error: SonarQube containers failed to initialize. Check logs with 'docker compose logs sonarqube'."
+    exit 1
+  fi
 }
 
-
-# start_sonarqube() {
-#   if ! docker compose -f ./docker-compose.yaml ps | grep -q 'Up'; then
-#     docker compose -f ./docker-compose.yaml up -d
-#     sleep 1m
-#     docker compose -f ./docker-compose.yaml up -d
-#     sleep 1m
-#   else
-#     echo "SonarQube docker compose services are already running. Skipping start and wait."
-#   fi
-# }
-
+# Create project in SonarQube if it doesn't already exist
 create_project() {
   for REPO in "${REPOS[@]}"; do
+    local project_key="$REPO"
+    [ -n "$PROJECT_PREFIX" ] && project_key="${PROJECT_PREFIX}-${REPO}"
+
     local exists
-    exists=$(curl -s -u "$SONARQUBE_USERNAME:$SONARQUBE_PASSWORD" "$SONARQUBE_URL/api/projects/search?projects=$REPO" | jq -r '.components | length' 2>/dev/null)
-    if ! [[ "$exists" =~ ^[0-9]+$ ]]; then
-      exists=0
-    fi
+    exists=$(curl -s -u "$SONARQUBE_USERNAME:$SONARQUBE_PASSWORD" "$SONARQUBE_URL/api/projects/search?projects=$project_key" 2>/dev/null | jq -r '.components | length' 2>/dev/null || echo 0)
+    
     if [ "$exists" -eq 0 ]; then
+      local response
       response=$(curl -s -X POST -u "$SONARQUBE_USERNAME:$SONARQUBE_PASSWORD" \
-        -d "name=$REPO&project=$REPO" \
+        -d "name=$project_key&project=$project_key" \
         "$SONARQUBE_URL/api/projects/create")
-      if echo "$response" | grep -q 'project'; then
-        echo "Project $REPO created as private."
+      if echo "$response" | jq -e '.project' > /dev/null 2>&1; then
+        echo "Project '$project_key' created."
       else
-        echo "Failed to create project $REPO. Response: $response"
+        echo "Warning: Could not create project '$project_key': $response"
       fi
     else
-      echo "Project $REPO already exists. No action taken."
+      echo "Project '$project_key' already exists. Ready for scan."
     fi
   done
 }
 
+# Delete project (Only executed if explicitly requested via --clean-projects)
 delete_project() {
   for REPO in "${REPOS[@]}"; do
-    curl -s -X POST -u "$SONARQUBE_USERNAME:$SONARQUBE_PASSWORD" "$SONARQUBE_URL/api/projects/delete?project=$REPO" > /dev/null
-    echo "Project $REPO deleted."
+    local project_key="$REPO"
+    [ -n "$PROJECT_PREFIX" ] && project_key="${PROJECT_PREFIX}-${REPO}"
+
+    echo "Deleting project '$project_key'..."
+    curl -s -X POST -u "$SONARQUBE_USERNAME:$SONARQUBE_PASSWORD" \
+      -d "project=$project_key" \
+      "$SONARQUBE_URL/api/projects/delete" > /dev/null 2>&1 || true
+    echo "Project '$project_key' deleted."
   done
 }
 
+# Clone or update repositories safely using subshells
 clone_or_update_repo() {
-  cd "$CLONE_DIR"
+  mkdir -p "$CLONE_DIR"
   for REPO in "${REPOS[@]}"; do
-    if [ -d "$CLONE_DIR/$REPO" ]; then
-      cd "$CLONE_DIR/$REPO"
-      # git checkout offshore
-      # git fetch origin offshore
-      git pull
+    local repo_dir="$CLONE_DIR/$REPO"
+    if [ -d "$repo_dir/.git" ]; then
+      echo "Pulling latest changes for $REPO..."
+      (
+        cd "$repo_dir"
+        git pull --ff-only || git pull
+      )
     else
-      # git clone -b offshore "$GITLAB_URL/$REPO.git"
-      git clone "$GITLAB_URL/$REPO.git"
+      echo "Cloning $REPO from $GITLAB_URL/$REPO.git..."
+      git clone "$GITLAB_URL/$REPO.git" "$repo_dir"
     fi
   done
-  cd ../
 }
 
-
-
-build_project() {
-  for REPO in "${REPOS[@]}"; do
-    cd "$CLONE_DIR/$REPO"
-    mvn clean package jacoco:report
-    cd - > /dev/null
-  done 
-}
-
-
+# Run SonarScanner via Maven using the resolved token for each repo
 run_sonar_scanner() {
-  cd "$CLONE_DIR"
   for REPO in "${REPOS[@]}"; do
-    cd "$REPO"
-    mvn clean verify sonar:sonar \
-      -Dsonar.projectKey=$REPO \
-      -Dsonar.projectName=$REPO \
-      -Dsonar.host.url=http://localhost:9001 \
-      -Dsonar.login=$TOKEN
-    cd ../
+    local repo_dir="$CLONE_DIR/$REPO"
+    local project_key="$REPO"
+    [ -n "$PROJECT_PREFIX" ] && project_key="${PROJECT_PREFIX}-${REPO}"
+
+    # Resolve token: per-repo file first, then environment/variable fallback
+    local repo_token=""
+    local token_file="$TOKEN_DIR/${REPO}_token.txt"
+    if [ -f "$token_file" ]; then
+      repo_token="$(cat "$token_file" | tr -d '\r\n[:space:]')"
+    elif [ -n "$TOKEN" ]; then
+      repo_token="$TOKEN"
+    fi
+
+    if [ -z "$repo_token" ]; then
+      echo "Warning: No token found for $REPO (checked $token_file and \$TOKEN). Skipping scan."
+      continue
+    fi
+
+    if [ ! -d "$repo_dir" ]; then
+      echo "Warning: Directory '$repo_dir' does not exist. Skipping."
+      continue
+    fi
+
+    echo "=========================================================="
+    echo "Running SonarQube analysis for: $REPO (Key: $project_key)"
+    echo "=========================================================="
+
+    (
+      cd "$repo_dir"
+      # Run Maven Sonar scan passing both modern -Dsonar.token and legacy -Dsonar.login
+      mvn clean verify sonar:sonar \
+        -Dsonar.projectKey="$project_key" \
+        -Dsonar.projectName="$project_key" \
+        -Dsonar.host.url="$SONARQUBE_URL" \
+        -Dsonar.token="$repo_token" \
+        -Dsonar.login="$repo_token"
+    )
+
+    if [ "$GENERATE_CNES_REPORT" = true ]; then
+      take_report "$REPO" "$project_key" "$repo_token"
+    fi
   done
-  cd ../
 }
 
+# Optional CNES report generation
 take_report() {
-  for REPO in "${REPOS[@]}"; do
-    java -jar sonar-cnes-report-4.2.0.jar -t $TOKEN -s http://localhost:9001 -p $REPO -o $REPO
-  done
-}  
-    # java -jar sonar-cnes-report-5.0.0.jar -t $TOKEN -s http://localhost:9001 -p $REPO -o $REPO
+  local repo="$1"
+  local project_key="$2"
+  local token="$3"
 
+  local cnes_jar
+  cnes_jar=$(find "$SCRIPT_DIR/sonarqube_plugins" -name "sonar-cnes-report-*.jar" 2>/dev/null | head -n 1 || true)
+  if [ -n "$cnes_jar" ] && [ -f "$cnes_jar" ]; then
+    echo "Generating CNES report for $project_key..."
+    java -jar "$cnes_jar" -t "$token" -s "$SONARQUBE_URL" -p "$project_key" -o "$SCRIPT_DIR/reports/$repo"
+  else
+    echo "CNES report jar not found in sonarqube_plugins/. Skipping report."
+  fi
+}
 
-# --- Main Script ---
-mkdir -p "$CLONE_DIR"
+# --- Main Script Execution ---
 
-# start_sonarqube
-# Main script logic starts here
+echo "=== SonarQube Microservices Analysis Workflow ==="
 
-# Check if the specific service container is currently running.
+# 1. Ensure SonarQube is running and ready
 if _is_sonarqube_running; then
-    echo "The '$SERVICE_NAME' container is already running. No action needed."
-    echo "Current status of all containers in the project:"
-    docker compose -f "./docker-compose.yaml" ps
-    # exit 0 # Exit if already running
-else
-    echo "The '$SERVICE_NAME' container is NOT found running."
-    # Call the start_sonarqube function to bring up containers if needed
+  echo "The '$SERVICE_NAME' container is already running."
+  if ! wait_for_sonarqube_ready; then
+    echo "SonarQube is starting up. Retrying..."
     start_sonarqube
+  fi
+else
+  echo "The '$SERVICE_NAME' container is NOT running. Starting containers..."
+  start_sonarqube
 fi
 
-echo "Starting SonarScanner analysis for all microservices..."
+# 2. Optional: Clean projects if explicitly requested via --clean-projects
+if [ "$DELETE_BEFORE_SCAN" = true ]; then
+  echo "Flag --clean-projects detected. Deleting existing SonarQube projects..."
+  delete_project
+fi
 
-# # Uncomment to delete all projects first
-# This is required because some times the project is not 
-#  deleted from SonarQube and old status is shown
-
-echo "Deleting project ..."
-delete_project
-
-echo "Creating project ..."
+# 3. Create projects in SonarQube if they do not already exist
+echo "Ensuring SonarQube projects exist..."
 create_project
 
-echo "Cloning or updating repository ..."
+# 4. Clone or pull code from GitLab
+echo "Preparing repositories..."
 clone_or_update_repo
 
+# 5. Run SonarScanner analysis
+echo "Starting code analysis..."
 run_sonar_scanner
 
-# take_report
+# 6. Optional workspace cleanup
+if [ "$CLEAN_WORKSPACE_AFTER_SCAN" = true ]; then
+  echo "Cleaning up workspace directory ($CLONE_DIR)..."
+  rm -rf "$CLONE_DIR"
+fi
 
-# # docker compose -f ./docker-compose.yaml down
-rm -rf $CLONE_DIR
-
-
-
-#   rm -rf "$TOKEN_DIR/${REPO}_token.txt"
-# java -jar sonar-cnes-report-5.0.0.jar -t squ_a40960ab8d2a8b27d433a2e621486eabf0c751ef -s http://localhost:9001 -p config-manager-service -r ./template.docx
-
+echo "=========================================================="
 echo "SonarScanner analysis completed for all microservices."
+echo "Dashboard: $SONARQUBE_URL"
